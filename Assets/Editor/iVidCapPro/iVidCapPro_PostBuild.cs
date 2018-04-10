@@ -43,144 +43,164 @@ using System.IO;
 using System.Text.RegularExpressions;
 
 
-public class iVidCapPro_PostBuild {
-		
-	[PostProcessBuild]
-    public static void OnPostprocessBuild(BuildTarget target, string pathToBuiltProject) {
-        UnityEngine.Debug.Log("iVidCapPro_PostBuild processing starts... Unity Version = " 
-			+ Application.unityVersion);
-	
-		// Set the name of the Unity AppController source file.
-		// For versions <  4.2 it's AppController.mm
-		// For versions >= 4.2 it's UnityAppController.mm
-		string appControllerName;
-		if (string.Compare(Application.unityVersion,"4.2") == -1) 
-			appControllerName = "AppController.mm";
-		else
-			appControllerName = "UnityAppController.mm";
-		
-		string appControllerPath = pathToBuiltProject + Path.DirectorySeparatorChar + "Classes" +
-			Path.DirectorySeparatorChar + appControllerName;
-		string appControllerBackupPath = pathToBuiltProject + Path.DirectorySeparatorChar + "Classes" +
-			Path.DirectorySeparatorChar + appControllerName + "_pre_ivcp_edit";
-		
-		// The regular expression pattern to be used for finding the place in AppController
-		// that we want to insert our get context function.
-		string insertionPointPattern = "// --- AppController";
-		
-		// The definition of the get context function for Unity versions prior to 4.1.
-		string contextFunction_1 = 
-			"// Added for use by iVidCapPro.\n" +
-			"extern \"C\" EAGLContext* ivcp_UnityGetContext()\n" +
+public class iVidCapPro_PostBuild
+{
+
+    [PostProcessBuild]
+    public static void OnPostprocessBuild(BuildTarget target, string pathToBuiltProject)
+    {
+        UnityEngine.Debug.Log("iVidCapPro_PostBuild processing starts... Unity Version = "
+            + Application.unityVersion);
+
+        // Set the name of the Unity AppController source file.
+        // For versions <  4.2 it's AppController.mm
+        // For versions >= 4.2 it's UnityAppController.mm
+        string appControllerName;
+        if (string.Compare(Application.unityVersion, "4.2") == -1)
+            appControllerName = "AppController.mm";
+        else
+            appControllerName = "UnityAppController.mm";
+
+        string appControllerPath = pathToBuiltProject + Path.DirectorySeparatorChar + "Classes" +
+            Path.DirectorySeparatorChar + appControllerName;
+        string appControllerBackupPath = pathToBuiltProject + Path.DirectorySeparatorChar + "Classes" +
+            Path.DirectorySeparatorChar + appControllerName + "_pre_ivcp_edit";
+
+        // The regular expression pattern to be used for finding the place in AppController
+        // that we want to insert our get context function.
+        string insertionPointPattern = "// --- AppController";
+
+        // The definition of the get context function for Unity versions prior to 4.1.
+        string contextFunction_1 =
+            "// Added for use by iVidCapPro.\n" +
+            "extern \"C\" EAGLContext* ivcp_UnityGetContext()\n" +
             "{\n" +
-   			"    return _context;\n" +
-            "}\n\n";
-		
-		// The definition of the get context function for Unity versions 4.1 -> 4.3.
-		string contextFunction_2 = 
-			"// Added for use by iVidCapPro.\n" +
-			"extern \"C\" EAGLContext* ivcp_UnityGetContext()\n" +
-            "{\n" +
-   			"    return _mainDisplay->surface.context;\n" +
+               "    return _context;\n" +
             "}\n\n";
 
-		// The definition of the get context function for Unity versions 4.5 -> 4.6.2.
-		string contextFunction_3 = 
-			"\n" +
-			"// Added for use by iVidCapPro.\n" +
-			"extern \"C\" EAGLContext* ivcp_UnityGetContext()\n" +
-			"{\n" +
-			"	DisplayConnection* display = GetAppController().mainDisplay;\n" +
-			"	return display->surface.context;\n" +
-			"}\n\n";
+        // The definition of the get context function for Unity versions 4.1 -> 4.3.
+        string contextFunction_2 =
+            "// Added for use by iVidCapPro.\n" +
+            "extern \"C\" EAGLContext* ivcp_UnityGetContext()\n" +
+            "{\n" +
+               "    return _mainDisplay->surface.context;\n" +
+            "}\n\n";
 
-		// The definition of the get context function for Unity versions 4.6 -> ?.
-		string contextFunction_4 = 
-			"\n" +
-				"// Added for use by iVidCapPro.\n" +
-				"extern \"C\" EAGLContext* ivcp_UnityGetContext()\n" +
-				"{\n" +
-				"	return UnityGetMainScreenContextGLES();\n" +
-				"}\n\n";
-		
-		// Make a backup copy of the AppController.
-		File.Copy(appControllerPath, appControllerBackupPath, true);
-		if (!File.Exists(appControllerBackupPath)) {
-			UnityEngine.Debug.LogError("iVidCapPro_PostBuild ERROR: Backup of the original " + appControllerName + " could not be created.");
-			return;
-		} else {
-			UnityEngine.Debug.Log("iVidCapPro_PostBuild: Backup of the original " + appControllerName + " file created as: " + 
-				Path.GetFileName(appControllerBackupPath));
-		}
-		
-		// Read App Controller file into a string.
-		string fileString = "";
-		if (!ReadFileIntoString(appControllerPath, out fileString)) {
-			// Read failed...
-			UnityEngine.Debug.LogError("iVidCapPro_PostBuild ERROR: Could not read file " + appControllerName + ".");
-			return;
-		}
-		
-		// Update AppController data string.
-		// Set the substitution string based on the Unity Version.
-		string substString = "";
-		if (string.Compare(Application.unityVersion,"4.1") == -1) 
-			substString = contextFunction_1 + insertionPointPattern;
-		else if (string.Compare(Application.unityVersion,"4.5") == -1) 
-			substString = contextFunction_2 + insertionPointPattern;
-		else if (string.Compare(Application.unityVersion,"4.6.2") == -1) 
-			substString = contextFunction_3;
-		else
-			substString = contextFunction_4;
-			
-		// Check to see if AppController already contains our function.
-	    if (!Regex.IsMatch(fileString, @"ivcp_UnityGetContext")) {
-			// We need to add the function.  Look for our insertion point.
-			if (string.Compare(Application.unityVersion,"4.5") == -1) {
-				// For versions prior to 4.5, we're looking for a specific insertion point.
-				if (Regex.IsMatch (fileString, insertionPointPattern))  {
-					UnityEngine.Debug.Log("iVidCapPro_PostBuild: Insertion point found. Updating " + appControllerName + "."); 
-					fileString = Regex.Replace(fileString, insertionPointPattern, substString);
-				 
-					// Write modified AppController back to file.
-					WriteStringIntoFile(fileString, appControllerPath);
-					
-				} else {
-					// Couldn't find insertion point.
-					UnityEngine.Debug.LogError("iVidCapPro_PostBuild ERROR: Could not find insertion point.");
-				}
-			} else {
-				// For 4.5 and later, just add our function at the end of the file.
-				fileString += substString;
+        // The definition of the get context function for Unity versions 4.5 -> 4.6.2.
+        string contextFunction_3 =
+            "\n" +
+            "// Added for use by iVidCapPro.\n" +
+            "extern \"C\" EAGLContext* ivcp_UnityGetContext()\n" +
+            "{\n" +
+            "	DisplayConnection* display = GetAppController().mainDisplay;\n" +
+            "	return display->surface.context;\n" +
+            "}\n\n";
 
-				// Write modified AppController back to file.
-				WriteStringIntoFile(fileString, appControllerPath);
-			}
-		} else {
-			// The function is already present.  No action needed.
-			UnityEngine.Debug.Log("iVidCapPro_PostBuild: ivcp_UnityGetContext function already present. Nothing done."); 
-		}
-		
-		UnityEngine.Debug.Log("iVidCapPro_PostBuild processing completed successfully.");
-		
-		return;
-	}
-	
-	private static bool ReadFileIntoString(string filePath, out string stringData) {
-		
-		bool result = true;
-		stringData = "";
-		if (File.Exists(filePath)) {
-			stringData = File.ReadAllText(filePath);
-		} else {
-			result = false;
-		}
-		return result;
-	}
-	
-	private static bool WriteStringIntoFile(string stringData, string filePath) {
-		
-		File.WriteAllText(filePath, stringData);
-		return true;
-	}
+        // The definition of the get context function for Unity versions 4.6 -> ?.
+        string contextFunction_4 =
+            "\n" +
+                "// Added for use by iVidCapPro.\n" +
+                "extern \"C\" EAGLContext* ivcp_UnityGetContext()\n" +
+                "{\n" +
+                "	return UnityGetMainScreenContextGLES();\n" +
+                "}\n\n";
+
+        // Make a backup copy of the AppController.
+        File.Copy(appControllerPath, appControllerBackupPath, true);
+        if (!File.Exists(appControllerBackupPath))
+        {
+            UnityEngine.Debug.LogError("iVidCapPro_PostBuild ERROR: Backup of the original " + appControllerName + " could not be created.");
+            return;
+        }
+        else
+        {
+            UnityEngine.Debug.Log("iVidCapPro_PostBuild: Backup of the original " + appControllerName + " file created as: " +
+                Path.GetFileName(appControllerBackupPath));
+        }
+
+        // Read App Controller file into a string.
+        string fileString = "";
+        if (!ReadFileIntoString(appControllerPath, out fileString))
+        {
+            // Read failed...
+            UnityEngine.Debug.LogError("iVidCapPro_PostBuild ERROR: Could not read file " + appControllerName + ".");
+            return;
+        }
+
+        // Update AppController data string.
+        // Set the substitution string based on the Unity Version.
+        string substString = "";
+        if (string.Compare(Application.unityVersion, "4.1") == -1)
+            substString = contextFunction_1 + insertionPointPattern;
+        else if (string.Compare(Application.unityVersion, "4.5") == -1)
+            substString = contextFunction_2 + insertionPointPattern;
+        else if (string.Compare(Application.unityVersion, "4.6.2") == -1)
+            substString = contextFunction_3;
+        else
+            substString = contextFunction_4;
+
+        // Check to see if AppController already contains our function.
+        if (!Regex.IsMatch(fileString, @"ivcp_UnityGetContext"))
+        {
+            // We need to add the function.  Look for our insertion point.
+            if (string.Compare(Application.unityVersion, "4.5") == -1)
+            {
+                // For versions prior to 4.5, we're looking for a specific insertion point.
+                if (Regex.IsMatch(fileString, insertionPointPattern))
+                {
+                    UnityEngine.Debug.Log("iVidCapPro_PostBuild: Insertion point found. Updating " + appControllerName + ".");
+                    fileString = Regex.Replace(fileString, insertionPointPattern, substString);
+
+                    // Write modified AppController back to file.
+                    WriteStringIntoFile(fileString, appControllerPath);
+
+                }
+                else
+                {
+                    // Couldn't find insertion point.
+                    UnityEngine.Debug.LogError("iVidCapPro_PostBuild ERROR: Could not find insertion point.");
+                }
+            }
+            else
+            {
+                // For 4.5 and later, just add our function at the end of the file.
+                fileString += substString;
+
+                // Write modified AppController back to file.
+                WriteStringIntoFile(fileString, appControllerPath);
+            }
+        }
+        else
+        {
+            // The function is already present.  No action needed.
+            UnityEngine.Debug.Log("iVidCapPro_PostBuild: ivcp_UnityGetContext function already present. Nothing done.");
+        }
+
+        UnityEngine.Debug.Log("iVidCapPro_PostBuild processing completed successfully.");
+
+        return;
+    }
+
+    private static bool ReadFileIntoString(string filePath, out string stringData)
+    {
+
+        bool result = true;
+        stringData = "";
+        if (File.Exists(filePath))
+        {
+            stringData = File.ReadAllText(filePath);
+        }
+        else
+        {
+            result = false;
+        }
+        return result;
+    }
+
+    private static bool WriteStringIntoFile(string stringData, string filePath)
+    {
+
+        File.WriteAllText(filePath, stringData);
+        return true;
+    }
 }
